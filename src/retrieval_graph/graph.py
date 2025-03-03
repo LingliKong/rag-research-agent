@@ -16,6 +16,87 @@ from retrieval_graph.configuration import AgentConfiguration
 from retrieval_graph.researcher_graph.graph import graph as researcher_graph
 from retrieval_graph.state import AgentState, InputState, Router
 from shared.utils import format_docs, load_chat_model
+import json 
+
+async def guardrail(
+    state: AgentState, *, config: RunnableConfig
+) -> dict[str, list[BaseMessage]]:
+    """Validate the generated response with additional safety or formatting checks.
+
+    This guardrail function uses a dedicated model and prompt to ensure the response
+    meets safety and quality requirements.
+
+    Args:
+        state (AgentState): The current state of the agent, including retrieved documents and conversation history.
+        config (RunnableConfig): Configuration with the model used for guardrail validation.
+
+    Returns:
+        dict[str, list[str]]: A dictionary with a 'messages' key containing the validated response.
+    """
+    configuration = AgentConfiguration.from_runnable_config(config)
+    model = load_chat_model(configuration.guardrail_model)
+    # Example: using the same document context for safety validation.
+    context = format_docs(state.documents)
+    prompt = configuration.guardrail_system_prompt.format(context=context)
+    messages = [{"role": "system", "content": prompt}] + state.messages
+    response = await model.ainvoke(messages)
+    return {"messages": [response]}
+
+# async def is_about_langchain(state: AgentState) -> Literal["analyze_and_route_query"]:
+#     if not state.about_langchain:
+#         return hardcoded_response
+#     else:
+#         return "analyze_and_route_query"
+async def is_about_langchain(state: AgentState) -> Literal["topic_instruct", "analyze_and_route_query"]:
+    if not state.about_langchain:
+        return "topic_instruct"
+    else:
+        return "analyze_and_route_query"
+    
+async def topic_instruct(state):
+    return {"messages": [{"role": "assistant", "content": "sorry I can only answer questions about langchain"}]}   
+
+async def should_continue(state:AgentState):
+    messages = state["messages"]
+    last_message = messages[-1]
+    # If there are no tool calls, then we finish
+    if not last_message.tool_calls:
+        return "end"
+    # Otherwise if there is, we continue
+    else:
+        # return "continue"
+        return "analyze_and_route_query"
+    
+class AboutLangchain(TypedDict):
+    """Is the user's question about langchain?"""
+    about_langchain: bool
+    
+async def topic_guardrail(
+    state: AgentState, *, config: RunnableConfig
+) -> dict[str, list[BaseMessage]]:
+    """Validate the generated response with additional safety or formatting checks.
+
+    This guardrail function uses a dedicated model and prompt to ensure the response
+    meets safety and quality requirements.
+
+    Args:
+        state (AgentState): The current state of the agent, including retrieved documents and conversation history.
+        config (RunnableConfig): Configuration with the model used for guardrail validation.
+
+    Returns:
+        dict[str, list[str]]: A dictionary with a 'messages' key containing the validated response.
+    """
+    configuration = AgentConfiguration.from_runnable_config(config)
+    model = load_chat_model(configuration.guardrail_model).with_structured_output(AboutLangchain)    
+    # Example: using the same document context for safety validation.
+    # context = format_docs(state.documents)
+    prompt = configuration.topic_guardrail_system_prompt #.format(context=context)
+    messages = [{"role": "system", "content": prompt}] + state.messages
+    response = await model.ainvoke(messages)
+    # response =  model.invoke(messages)
+
+    # return {"messages": [response]}
+    return {"about_langchain": response['about_langchain']}
 
 
 async def analyze_and_route_query(
@@ -208,20 +289,28 @@ async def respond(
 
 # Define the graph
 builder = StateGraph(AgentState, input=InputState, config_schema=AgentConfiguration)
+builder.add_node(topic_instruct)
 builder.add_node(analyze_and_route_query)
+builder.add_node(topic_guardrail)  # Add the guardrail node
 builder.add_node(ask_for_more_info)
 builder.add_node(respond_to_general_query)
 builder.add_node(conduct_research)
 builder.add_node(create_research_plan)
 builder.add_node(respond)
+builder.add_node(guardrail)  # Add the guardrail node
 
-builder.add_edge(START, "analyze_and_route_query")
+# builder.add_edge(START, "analyze_and_route_query")
+builder.add_edge(START, "topic_guardrail")
+builder.add_conditional_edges("topic_guardrail", is_about_langchain)
 builder.add_conditional_edges("analyze_and_route_query", route_query)
 builder.add_edge("create_research_plan", "conduct_research")
 builder.add_conditional_edges("conduct_research", check_finished)
 builder.add_edge("ask_for_more_info", END)
 builder.add_edge("respond_to_general_query", END)
-builder.add_edge("respond", END)
+# builder.add_edge("respond", END)
+builder.add_edge("respond", "guardrail")
+builder.add_edge("guardrail", END)
+builder.add_edge("topic_instruct",END )
 
 # Compile into a graph object that you can invoke and deploy.
 graph = builder.compile()

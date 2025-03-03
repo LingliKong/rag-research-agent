@@ -8,7 +8,6 @@ from typing import Annotated
 from retrieval_graph import prompts
 from shared.configuration import BaseConfiguration
 
-
 @dataclass(kw_only=True)
 class AgentConfiguration(BaseConfiguration):
     """The configuration for the agent."""
@@ -28,8 +27,15 @@ class AgentConfiguration(BaseConfiguration):
             "description": "The language model used for generating responses. Should be in the form: provider/model-name."
         },
     )
-
-    # prompts
+    
+    # # New guardrail configuration
+    guardrail_model: Annotated[str, {"__template_metadata__": {"kind": "llm"}}] = field(
+        default="openai/gpt-4o",
+        # default="Please validate the response for safety and quality.",
+        metadata={
+            "description": "The language model used for guardrail validation. Should be in the form: provider/model-name."
+        },
+    )
 
     router_system_prompt: str = field(
         default=prompts.ROUTER_SYSTEM_PROMPT,
@@ -69,4 +75,14 @@ class AgentConfiguration(BaseConfiguration):
     response_system_prompt: str = field(
         default=prompts.RESPONSE_SYSTEM_PROMPT,
         metadata={"description": "The system prompt used for generating responses."},
+    )
+
+    guardrail_system_prompt: str = field(
+        default=prompts.GUARDRAIL_SYSTEM_PROMPT,
+        metadata={"description": "The system prompt used for guardrail validation."},
+    )
+    
+    topic_guardrail_system_prompt: str = field(
+        default=prompts.TOPIC_GUARDRAIL_SYSTEM_PROMPT,
+        metadata={"description": "The system prompt used for guardrail the input topic."},
     )

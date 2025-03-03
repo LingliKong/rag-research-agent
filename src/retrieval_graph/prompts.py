@@ -92,3 +92,12 @@ GENERATE_QUERIES_SYSTEM_PROMPT = """\
 Generate 3 search queries to search for to answer the user's question. \
 These search queries should be diverse in nature - do not generate \
 repetitive ones."""
+
+# GUARDRAIL_SYSTEM_PROMPT = """\
+# Please validate the response for safety and quality."""
+GUARDRAIL_SYSTEM_PROMPT = """\
+Determine whether the final assistant response is in English or not."""
+
+TOPIC_GUARDRAIL_SYSTEM_PROMPT = """\
+Determine whether the user's most recent question is about langchain.\
+    you need to find if there is key word langchain in the user's question.""" 
